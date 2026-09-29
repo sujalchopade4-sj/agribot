@@ -147,7 +147,6 @@ def call_core(action, **kwargs):
         st.error(f"JSON Parsing Error:\n{res.stdout}")
         st.stop()
 
-# Force load latest state from C++
 st.session_state.state = call_core("state")
 
 THEME = {
@@ -156,15 +155,22 @@ THEME = {
     "D": {"bg": "linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%)", "border": "rgba(239, 68, 68, 0.3)", "icon": "🥀"}
 }
 
+FOG_THEME = {
+    "bg": "linear-gradient(135deg, #182026 0%, #111518 100%)",
+    "border": "rgba(255, 255, 255, 0.05)",
+    "icon": "🌫️"
+}
+
 # --- Sidebar ---
 with st.sidebar:
     st.title("🚜 OOP System Architecture")
     st.markdown("""
+    - **Fog of War**: Unvisited tiles shrouded
     - **Polymorphism**: `ActionCommand` abstract base
-    - **Encapsulation**: Private parameters & clamps
+    - **Encapsulation**: Private state & clamps
     - **Undo / Redo**: LIFO `std::stack`
     - **Pipeline**: FIFO `std::queue`
-    - **Base Station**: Solar Recharge at `[0,0]`
+    - **Base Station**: Dock & Solar Recharge at `[0,0]`
     """)
     if st.button("🔄 Reset Field & Full Battery", use_container_width=True, key="side_reset"):
         st.session_state.state = call_core("reset")
@@ -176,7 +182,7 @@ st.title("🛰️ AgriBot 5x5 Tactical Field Terminal")
 with st.expander("⚡ AUTONOMOUS SWEEP & SPEED CONTROLLER", expanded=True):
     col_c1, col_c2, col_c3 = st.columns([1.2, 1, 1])
     with col_c1:
-        anim_speed = st.slider("Step Traversal Speed (seconds)", min_value=0.05, max_value=1.0, value=0.25, step=0.05)
+        anim_speed = st.slider("Step Delay (Animation Speed)", min_value=0.05, max_value=1.0, value=0.25, step=0.05)
     with col_c2:
         if st.button("🚀 Queue Full Lawnmower Sweep", use_container_width=True):
             survey_steps = []
@@ -229,8 +235,9 @@ def render_matrix(target_container, current_state):
                 ch = current_state["grid"][r][c]
                 is_bot = (current_state["x"] == r and current_state["y"] == c)
                 is_base = (r == 0 and c == 0)
+                is_revealed = current_state["discovered"][r][c]
 
-                meta = THEME.get(ch, THEME["H"])
+                meta = THEME.get(ch, THEME["H"]) if is_revealed else FOG_THEME
                 cell_class = "cell-5"
 
                 if is_bot:
@@ -247,7 +254,7 @@ def render_matrix(target_container, current_state):
                     icon = meta["icon"]
                     border = f"1px solid {meta['border']}"
                     bg = meta["bg"]
-                    if ch == "W":
+                    if is_revealed and ch == "W":
                         cell_class += " weed-cell"
 
                 row_cols[c].markdown(
@@ -266,11 +273,12 @@ with col_map:
     render_matrix(matrix_placeholder, st.session_state.state)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.markdown("🤖 **Rover**")
-    k2.markdown("⚡ **Solar Base [0,0]**")
-    k3.markdown("🌾 **Weed (-3%)**")
-    k4.markdown("🥀 **Blight (-3%)**")
+    k2.markdown("🌫️ **Fog**")
+    k3.markdown("🌱 **Healthy**")
+    k4.markdown("🌾 **Weed**")
+    k5.markdown("🥀 **Blight**")
 
     st.markdown("---")
     st.subheader("Manual Teleoperation Control")
@@ -281,7 +289,7 @@ with col_map:
         st.rerun()
 
     c4, c5, c6 = st.columns(3)
-    if c4.button("⬅️ West", use_container_width=True):
+    if c4.button("⬅️️ West", use_container_width=True):
         st.session_state.state = call_core("move", dir="left")
         st.rerun()
     if c5.button("⬇️ South", use_container_width=True):
@@ -319,13 +327,12 @@ with col_ops:
     st.subheader("System Diagnostics")
 
     batt = st.session_state.state["battery"]
-    weeds_remaining = sum(row.count('W') for row in st.session_state.state["grid"])
-    pathogens_remaining = sum(row.count('D') for row in st.session_state.state["grid"])
+    discovered_count = sum(sum(1 for cell in row if cell) for row in st.session_state.state["discovered"])
 
     d1, d2, d3 = st.columns(3)
-    d1.metric("Battery Reserve", f"{batt}%")
+    d1.metric("Reserve Power", f"{batt}%")
     d2.metric("Grid Vector", f"[{st.session_state.state['x']}, {st.session_state.state['y']}]")
-    d3.metric("Threats Left", f"{weeds_remaining + pathogens_remaining}")
+    d3.metric("Scouted", f"{discovered_count}/25")
     st.progress(batt / 100)
 
     st.markdown("---")
