@@ -147,8 +147,8 @@ def call_core(action, **kwargs):
         st.error(f"JSON Parsing Error:\n{res.stdout}")
         st.stop()
 
-if "state" not in st.session_state:
-    st.session_state.state = call_core("state")
+# Force load latest state from C++
+st.session_state.state = call_core("state")
 
 THEME = {
     "H": {"bg": "linear-gradient(135deg, #064e3b 0%, #022c22 100%)", "border": "rgba(16, 185, 129, 0.2)", "icon": "🌱"},
@@ -156,9 +156,9 @@ THEME = {
     "D": {"bg": "linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%)", "border": "rgba(239, 68, 68, 0.3)", "icon": "🥀"}
 }
 
-# --- Sidebar Architecture ---
+# --- Sidebar ---
 with st.sidebar:
-    st.title("🚜 System Architecture")
+    st.title("🚜 OOP System Architecture")
     st.markdown("""
     - **Polymorphism**: `ActionCommand` abstract base
     - **Encapsulation**: Private parameters & clamps
@@ -166,7 +166,7 @@ with st.sidebar:
     - **Pipeline**: FIFO `std::queue`
     - **Base Station**: Solar Recharge at `[0,0]`
     """)
-    if st.button("🎲 Randomize 5x5 Field", use_container_width=True):
+    if st.button("🔄 Reset Field & Full Battery", use_container_width=True, key="side_reset"):
         st.session_state.state = call_core("reset")
         st.rerun()
 
@@ -303,12 +303,15 @@ with col_map:
         st.session_state.state = call_core("recharge")
         st.rerun()
 
-    u1, u2 = st.columns(2)
+    u1, u2, u3 = st.columns(3)
     if u1.button("⏪ Undo Stack", use_container_width=True):
         st.session_state.state = call_core("undo")
         st.rerun()
     if u2.button("⏩ Redo Stack", use_container_width=True):
         st.session_state.state = call_core("redo")
+        st.rerun()
+    if u3.button("🔄 Reset Field", use_container_width=True):
+        st.session_state.state = call_core("reset")
         st.rerun()
 
 # --- Right Column: Diagnostics & Pipelines ---
@@ -366,7 +369,7 @@ with col_ops:
         else:
             st.caption("No instructions in pipeline.")
 
-    tab_u, tab_r, tab_h = st.tabs(["LIFO Undo Stack", "LIFO Redo Stack", "Telemetry Log"])
+    tab_u, tab_r = st.tabs(["LIFO Undo Stack", "LIFO Redo Stack"])
     with tab_u:
         if st.session_state.state["undo"]:
             for item in reversed(st.session_state.state["undo"][-8:]):
@@ -382,13 +385,6 @@ with col_ops:
                 st.text(f"⮎ {clean_name}")
         else:
             st.caption("Stack empty.")
-
-    with tab_h:
-        if st.session_state.state["history"]:
-            for h in reversed(st.session_state.state["history"][-8:]):
-                st.caption(f"• {h}")
-        else:
-            st.caption("No telemetry recorded.")
 
 banner_placeholder.markdown(f"""
 <div class="status-banner">
