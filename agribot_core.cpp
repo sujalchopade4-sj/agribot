@@ -10,9 +10,6 @@
 
 const int GRID_SIZE = 5;
 
-// ==========================================
-// Abstract Base Class: ActionCommand
-// ==========================================
 class AgriBot;
 
 class ActionCommand {
@@ -24,14 +21,12 @@ public:
     virtual std::string serialize() const = 0;
 };
 
-// ==========================================
-// Encapsulated Robot Core
-// ==========================================
 class AgriBot {
 private:
     int x, y;
     int battery;
     std::vector<std::string> grid;
+    std::vector<std::vector<bool>> discovered;
     std::string lastMessage;
 
 public:
@@ -43,6 +38,8 @@ public:
     int getY() const { return y; }
     int getBattery() const { return battery; }
     const std::vector<std::string>& getGrid() const { return grid; }
+    bool isDiscovered(int r, int c) const { return discovered[r][c]; }
+    void setDiscovered(int r, int c, bool val) { discovered[r][c] = val; }
     std::string getMessage() const { return lastMessage; }
 
     void setMessage(const std::string& msg) { lastMessage = msg; }
@@ -56,6 +53,8 @@ public:
         y = 0;
         battery = 100;
         grid = std::vector<std::string>(GRID_SIZE, std::string(GRID_SIZE, 'H'));
+        discovered = std::vector<std::vector<bool>>(GRID_SIZE, std::vector<bool>(GRID_SIZE, false));
+        discovered[0][0] = true; // Base station start tile is known
 
         unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
         std::default_random_engine gen(seed);
@@ -69,20 +68,16 @@ public:
         }
         std::shuffle(spots.begin(), spots.end(), gen);
 
-        // Dynamic target generation
         for (int i = 0; i < 3 && i < (int)spots.size(); ++i) {
             grid[spots[i].first][spots[i].second] = 'W';
         }
         for (int i = 3; i < 5 && i < (int)spots.size(); ++i) {
             grid[spots[i].first][spots[i].second] = 'D';
         }
-        lastMessage = "Field randomized: 3 Weeds and 2 Pathogens deployed.";
+        lastMessage = "Field deployed with Fog of War. 3 Weeds and 2 Blight patches masked.";
     }
 };
 
-// ==========================================
-// Concrete Child Classes (OOP Polymorphism)
-// ==========================================
 class MoveCommand : public ActionCommand {
 private:
     std::string direction;
@@ -94,7 +89,7 @@ public:
 
     bool execute(AgriBot& bot) override {
         if (bot.getBattery() < 4) {
-            bot.setMessage("Battery critical (<4%). Navigation halted.");
+            bot.setMessage("Battery critical (<4%). Navigation stopped.");
             return false;
         }
         prevX = bot.getX();
@@ -108,24 +103,62 @@ public:
         else if (direction == "right") ny++;
 
         if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) {
-            bot.setMessage("Boundary collision avoided at perimeter.");
+            bot.setMessage("Boundary collision avoided.");
             return false;
         }
 
         bot.setPos(nx, ny);
         bot.setBattery(prevBattery - 4);
-        bot.setMessage("Traversed " + direction + " to quadrant [" + std::to_string(nx) + "," + std::to_string(ny) + "].");
+        bot.setMessage("Navigated " + direction + " to [" + std::to_string(nx) + "," + std::to_string(ny) + "].");
         return true;
     }
 
     void undo(AgriBot& bot) override {
         bot.setPos(prevX, prevY);
         bot.setBattery(prevBattery);
-        bot.setMessage("Undid step: Backtracked to [" + std::to_string(prevX) + "," + std::to_string(prevY) + "].");
+        bot.setMessage("Rolled back position to [" + std::to_string(prevX) + "," + std::to_string(prevY) + "].");
     }
 
     std::string describe() const override { return "Move " + direction; }
     std::string serialize() const override { return "move:" + direction; }
+};
+
+class InspectCommand : public ActionCommand {
+private:
+    int prevBattery;
+    bool wasAlreadyDiscovered;
+    int targetX, targetY;
+
+public:
+    InspectCommand() : prevBattery(0), wasAlreadyDiscovered(false), targetX(0), targetY(0) {}
+
+    bool execute(AgriBot& bot) override {
+        if (bot.getBattery() < 2) {
+            bot.setMessage("Battery too low for multispectral scan.");
+            return false;
+        }
+        targetX = bot.getX();
+        targetY = bot.getY();
+        prevBattery = bot.getBattery();
+        wasAlreadyDiscovered = bot.isDiscovered(targetX, targetY);
+
+        bot.setBattery(prevBattery - 2);
+        bot.setDiscovered(targetX, targetY, true);
+
+        char c = bot.getCell(targetX, targetY);
+        std::string status = (c == 'H') ? "Healthy Foliage" : ((c == 'W') ? "Weed Infestation detected!" : "Crop Blight pathogen detected!");
+        bot.setMessage("Scan at [" + std::to_string(targetX) + "," + std::to_string(targetY) + "]: " + status);
+        return true;
+    }
+
+    void undo(AgriBot& bot) override {
+        bot.setBattery(prevBattery);
+        bot.setDiscovered(targetX, targetY, wasAlreadyDiscovered);
+        bot.setMessage("Undid sensor scan at [" + std::to_string(targetX) + "," + std::to_string(targetY) + "].");
+    }
+
+    std::string describe() const override { return "Multispectral Scan"; }
+    std::string serialize() const override { return "inspect"; }
 };
 
 class SprayCommand : public ActionCommand {
@@ -138,64 +171,41 @@ public:
     SprayCommand() : prevStatus('H'), targetX(0), targetY(0), prevBattery(0) {}
 
     bool execute(AgriBot& bot) override {
-        if (bot.getBattery() < 8) {
-            bot.setMessage("Insufficient charge for high-pressure spray nozzle.");
-            return false;
-        }
         targetX = bot.getX();
         targetY = bot.getY();
+
+        if (!bot.isDiscovered(targetX, targetY)) {
+            bot.setMessage("Safety Interlock: Cannot spray uninspected terrain! Run scan first.");
+            return false;
+        }
+
+        if (bot.getBattery() < 8) {
+            bot.setMessage("Insufficient battery for high-pressure spray.");
+            return false;
+        }
+
         prevStatus = bot.getCell(targetX, targetY);
         prevBattery = bot.getBattery();
 
         if (prevStatus == 'H') {
-            bot.setMessage("Crop is healthy. Spray omitted to save chemical stores.");
+            bot.setMessage("Target already healthy. Spray omitted to save chemical stock.");
             return false;
         }
 
         bot.setCell(targetX, targetY, 'H');
         bot.setBattery(prevBattery - 8);
-        bot.setMessage("Chemical treatment applied at [" + std::to_string(targetX) + "," + std::to_string(targetY) + "]. Restored to Healthy.");
+        bot.setMessage("Neutralizer deployed at [" + std::to_string(targetX) + "," + std::to_string(targetY) + "]. Restored to Healthy.");
         return true;
     }
 
     void undo(AgriBot& bot) override {
         bot.setCell(targetX, targetY, prevStatus);
         bot.setBattery(prevBattery);
-        bot.setMessage("Neutralized spray delta at [" + std::to_string(targetX) + "," + std::to_string(targetY) + "].");
+        bot.setMessage("Neutralizer action reversed at [" + std::to_string(targetX) + "," + std::to_string(targetY) + "].");
     }
 
-    std::string describe() const override { return "Neutralizer Spray"; }
+    std::string describe() const override { return "Precision Spray"; }
     std::string serialize() const override { return "spray"; }
-};
-
-class InspectCommand : public ActionCommand {
-private:
-    int prevBattery;
-
-public:
-    InspectCommand() : prevBattery(0) {}
-
-    bool execute(AgriBot& bot) override {
-        if (bot.getBattery() < 2) {
-            bot.setMessage("Insufficient charge for multispectral sensor array.");
-            return false;
-        }
-        prevBattery = bot.getBattery();
-        bot.setBattery(prevBattery - 2);
-
-        char c = bot.getCell(bot.getX(), bot.getY());
-        std::string status = (c == 'H') ? "Healthy Foliage" : ((c == 'W') ? "Invasive Weed" : "Fungal Blight");
-        bot.setMessage("Spectrometer Analysis [" + std::to_string(bot.getX()) + "," + std::to_string(bot.getY()) + "]: " + status);
-        return true;
-    }
-
-    void undo(AgriBot& bot) override {
-        bot.setBattery(prevBattery);
-        bot.setMessage("Reverted inspection cycle & reclaimed sensor power.");
-    }
-
-    std::string describe() const override { return "Spectrometer Scan"; }
-    std::string serialize() const override { return "inspect"; }
 };
 
 std::shared_ptr<ActionCommand> deserializeCommand(const std::string& raw) {
@@ -205,12 +215,9 @@ std::shared_ptr<ActionCommand> deserializeCommand(const std::string& raw) {
     return nullptr;
 }
 
-// ==========================================
-// Main Dispatcher & Persistence Core
-// ==========================================
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cout << "{\"error\": \"Invalid argument count.\"}" << std::endl;
+        std::cout << "{\"error\": \"Invalid arguments.\"}" << std::endl;
         return 1;
     }
 
@@ -234,6 +241,12 @@ int main(int argc, char* argv[]) {
                 in >> row;
                 for (int c = 0; c < GRID_SIZE; ++c) bot.setCell(r, c, row[c]);
             }
+            for (int r = 0; r < GRID_SIZE; ++r) {
+                std::string discRow;
+                in >> discRow;
+                for (int c = 0; c < GRID_SIZE; ++c) bot.setDiscovered(r, c, discRow[c] == '1');
+            }
+
             int uSize, rSize, qSize, hSize;
             in >> uSize;
             undoStackSerialized.resize(uSize);
@@ -261,7 +274,7 @@ int main(int argc, char* argv[]) {
         redoStackSerialized.clear();
         queueSerialized.clear();
         history.clear();
-        history.push_back("Telemetry re-initialized.");
+        history.push_back("Mission area reset.");
     }
     else if (action == "move" || action == "spray" || action == "inspect") {
         std::shared_ptr<ActionCommand> cmd = nullptr;
@@ -291,7 +304,7 @@ int main(int argc, char* argv[]) {
         if (cmd) {
             cmd->undo(bot);
             redoStackSerialized.push_back(raw);
-            history.push_back("Rollback: " + cmd->describe());
+            history.push_back("Undo: " + cmd->describe());
         }
     }
     else if (action == "redo" && !redoStackSerialized.empty()) {
@@ -300,7 +313,7 @@ int main(int argc, char* argv[]) {
         auto cmd = deserializeCommand(raw);
         if (cmd && cmd->execute(bot)) {
             undoStackSerialized.push_back(raw);
-            history.push_back("Forward: " + cmd->describe());
+            history.push_back("Redo: " + cmd->describe());
         }
     }
     else if (action == "queue_add" && argc >= 4) {
@@ -313,7 +326,7 @@ int main(int argc, char* argv[]) {
         }
         std::string serialized = (type == "move") ? ("move:" + dir) : type;
         queueSerialized.push_back(serialized);
-        bot.setMessage("Enqueued in STL Queue: " + serialized);
+        bot.setMessage("Enqueued: " + serialized);
     }
     else if (action == "queue_next" && !queueSerialized.empty()) {
         std::string raw = queueSerialized.front();
@@ -325,29 +338,16 @@ int main(int argc, char* argv[]) {
             history.push_back("Queue pop: " + cmd->describe());
         }
     }
-    else if (action == "queue_all") {
-        int ops = 0;
-        while (!queueSerialized.empty()) {
-            std::string raw = queueSerialized.front();
-            queueSerialized.erase(queueSerialized.begin());
-            auto cmd = deserializeCommand(raw);
-            if (cmd && cmd->execute(bot)) {
-                undoStackSerialized.push_back(raw);
-                history.push_back("Queue pop: " + cmd->describe());
-                ops++;
-            } else {
-                break;
-            }
-        }
-        redoStackSerialized.clear();
-        bot.setMessage("Batch pipeline finished. Executed " + std::to_string(ops) + " actions.");
-    }
 
     std::ofstream out(stateFile);
     if (out.is_open()) {
         out << bot.getX() << " " << bot.getY() << " " << bot.getBattery() << "\n";
         for (int r = 0; r < GRID_SIZE; ++r) {
             for (int c = 0; c < GRID_SIZE; ++c) out << bot.getCell(r, c);
+            out << "\n";
+        }
+        for (int r = 0; r < GRID_SIZE; ++r) {
+            for (int c = 0; c < GRID_SIZE; ++c) out << (bot.isDiscovered(r, c) ? "1" : "0");
             out << "\n";
         }
         out << undoStackSerialized.size() << "\n";
@@ -371,6 +371,16 @@ int main(int argc, char* argv[]) {
         std::cout << "\"";
         for (int c = 0; c < GRID_SIZE; ++c) std::cout << bot.getCell(r, c);
         std::cout << "\"" << (r + 1 < GRID_SIZE ? "," : "");
+    }
+    std::cout << "],";
+
+    std::cout << "\"discovered\":[";
+    for (int r = 0; r < GRID_SIZE; ++r) {
+        std::cout << "[";
+        for (int c = 0; c < GRID_SIZE; ++c) {
+            std::cout << (bot.isDiscovered(r, c) ? "true" : "false") << (c + 1 < GRID_SIZE ? "," : "");
+        }
+        std::cout << "]" << (r + 1 < GRID_SIZE ? "," : "");
     }
     std::cout << "],";
 
