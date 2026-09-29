@@ -106,24 +106,28 @@ EXE_PATH = os.path.join(HERE, EXE_NAME)
 CPP_PATH = os.path.join(HERE, "agribot_core.cpp")
 
 def ensure_exe_built():
-    if os.path.exists(EXE_PATH):
-        return True
-    if not os.path.exists(CPP_PATH):
-        return False
-    try:
-        res = subprocess.run(
-            ["g++", "-std=c++17", CPP_PATH, "-o", EXE_PATH],
-            capture_output=True, text=True, timeout=60
-        )
-        if res.returncode != 0:
-            st.error(f"Compile Error:\n{res.stderr}")
+    # If source is newer or exe is missing, compile it
+    needs_build = not os.path.exists(EXE_PATH)
+    if os.path.exists(CPP_PATH) and os.path.exists(EXE_PATH):
+        if os.path.getmtime(CPP_PATH) > os.path.getmtime(EXE_PATH):
+            needs_build = True
+
+    if needs_build and os.path.exists(CPP_PATH):
+        try:
+            res = subprocess.run(
+                ["g++", "-std=c++17", CPP_PATH, "-o", EXE_PATH],
+                capture_output=True, text=True, timeout=60
+            )
+            if res.returncode != 0:
+                st.error(f"Compilation failure:\n{res.stderr}")
+                return False
+            if os.name != "nt":
+                os.chmod(EXE_PATH, 0o755)
+            return True
+        except Exception as e:
+            st.error(f"Compiler missing or build failure: {e}")
             return False
-        if os.name != "nt":
-            os.chmod(EXE_PATH, 0o755)
-        return True
-    except Exception as e:
-        st.error(f"Compiler missing or build failure: {e}")
-        return False
+    return os.path.exists(EXE_PATH)
 
 ensure_exe_built()
 
@@ -151,75 +155,68 @@ def call_core(action, **kwargs):
 if "state" not in st.session_state:
     st.session_state.state = call_core("state")
 
-# Discovered themes
 THEME = {
     "H": {"bg": "linear-gradient(135deg, #064e3b 0%, #022c22 100%)", "border": "rgba(16, 185, 129, 0.2)", "icon": "🌱"},
     "W": {"bg": "linear-gradient(135deg, #78350f 0%, #451a03 100%)", "border": "rgba(245, 158, 11, 0.2)", "icon": "🌾"},
     "D": {"bg": "linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%)", "border": "rgba(239, 68, 68, 0.2)", "icon": "🥀"}
 }
 
-# Unexplored Fog of War theme
 FOG_THEME = {
     "bg": "linear-gradient(135deg, #182026 0%, #111518 100%)",
     "border": "rgba(255, 255, 255, 0.05)",
     "icon": "🌫️"
 }
 
-# --- Sidebar Controls ---
+# --- Sidebar ---
 with st.sidebar:
-    st.title("⚙️️ Telemetry Controls")
-    
-    speed = st.slider("Animation Delay (seconds)", min_value=0.1, max_value=1.5, value=0.35, step=0.05)
-    st.caption("Adjusts pacing for autonomous sweep and queue step execution.")
-
-    st.markdown("---")
-    st.subheader("Autonomous Routines")
-    
-    if st.button("🚀 Auto-Survey Routine (Full Scan)", use_container_width=True):
-        survey_steps = []
-        for r in range(5):
-            cols = range(5) if r % 2 == 0 else range(4, -1, -1)
-            for c in cols:
-                survey_steps.append((r, c))
-
-        cur_x, cur_y = st.session_state.state["x"], st.session_state.state["y"]
-        
-        # Enqueue trajectory
-        for target_r, target_c in survey_steps:
-            while cur_x < target_r:
-                call_core("queue_add", type="move", dir="down")
-                cur_x += 1
-            while cur_x > target_r:
-                call_core("queue_add", type="move", dir="up")
-                cur_x -= 1
-            while cur_y < target_c:
-                call_core("queue_add", type="move", dir="right")
-                cur_y += 1
-            while cur_y > target_c:
-                call_core("queue_add", type="move", dir="left")
-                cur_y -= 1
-            call_core("queue_add", type="inspect")
-
-        st.session_state.state = call_core("state")
-        st.rerun()
-
-    st.markdown("---")
-    st.subheader("Architecture")
+    st.title("📦 System Controls")
     st.markdown("""
     - **Fog of War**: Hidden quadrants
-    - **Polymorphism**: `ActionCommand` abstract base
-    - **Encapsulation**: Private robot coordinates & energy
+    - **Polymorphism**: `ActionCommand` base
+    - **Encapsulation**: Private state & setters
     - **Undo / Redo**: LIFO `std::stack`
-    - **Mission Queue**: FIFO `std::queue`
+    - **Pipeline**: FIFO `std::queue`
     """)
 
-# --- Top Banner ---
 st.title("🛰️ AgriBot Autonomous Tactical Grid")
+
+# Mission Automation & Speed Controls Expander (Visible directly on top)
+with st.expander("⚡ AUTONOMOUS SWEEP & SPEED CONTROLLER", expanded=True):
+    col_c1, col_c2 = st.columns([1.5, 1])
+    with col_c1:
+        anim_speed = st.slider("Step Delay (Animation Speed)", min_value=0.05, max_value=1.5, value=0.30, step=0.05,
+                               help="Controls how fast the robot moves during autonomous queue execution.")
+    with col_c2:
+        if st.button("🚀 Queue Full Lawnmower Auto-Survey", use_container_width=True):
+            survey_steps = []
+            for r in range(5):
+                cols = range(5) if r % 2 == 0 else range(4, -1, -1)
+                for c in cols:
+                    survey_steps.append((r, c))
+
+            cur_x, cur_y = st.session_state.state["x"], st.session_state.state["y"]
+            for target_r, target_c in survey_steps:
+                while cur_x < target_r:
+                    call_core("queue_add", type="move", dir="down")
+                    cur_x += 1
+                while cur_x > target_r:
+                    call_core("queue_add", type="move", dir="up")
+                    cur_x -= 1
+                while cur_y < target_c:
+                    call_core("queue_add", type="move", dir="right")
+                    cur_y += 1
+                while cur_y > target_c:
+                    call_core("queue_add", type="move", dir="left")
+                    cur_y -= 1
+                call_core("queue_add", type="inspect")
+
+            st.session_state.state = call_core("state")
+            st.rerun()
+
 banner_placeholder = st.empty()
 
 col_map, col_ops = st.columns([1.5, 1], gap="large")
 
-# Render Matrix Helper
 def render_matrix(target_container, current_state):
     with target_container.container():
         st.subheader("Field Topology Matrix")
@@ -255,7 +252,7 @@ def render_matrix(target_container, current_state):
                     unsafe_allow_html=True
                 )
 
-# --- Left Column: Map & Controls ---
+# --- Left Column: Matrix & Manual D-Pad ---
 with col_map:
     matrix_placeholder = st.empty()
     render_matrix(matrix_placeholder, st.session_state.state)
@@ -263,7 +260,7 @@ with col_map:
     st.markdown("<br>", unsafe_allow_html=True)
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.markdown("🤖 **Rover**")
-    k2.markdown("🌫️ **Fog/Hidden**")
+    k2.markdown("🌫️ **Fog**")
     k3.markdown("🌱 **Healthy**")
     k4.markdown("🌾 **Weed**")
     k5.markdown("🥀 **Blight**")
@@ -280,7 +277,7 @@ with col_map:
     if c4.button("⬅️ West", use_container_width=True):
         st.session_state.state = call_core("move", dir="left")
         st.rerun()
-    if c5.button("⬇️️ South", use_container_width=True):
+    if c5.button("⬇️ South", use_container_width=True):
         st.session_state.state = call_core("move", dir="down")
         st.rerun()
     if c6.button("➡️ East", use_container_width=True):
@@ -306,13 +303,13 @@ with col_map:
         st.session_state.state = call_core("reset")
         st.rerun()
 
-# --- Right Column: Diagnostics & Pipeline ---
+# --- Right Column: Diagnostics, Queues & Stacks ---
 with col_ops:
     st.subheader("System Diagnostics")
 
     batt = st.session_state.state["battery"]
     discovered_count = sum(sum(1 for cell in row if cell) for row in st.session_state.state["discovered"])
-    
+
     d1, d2, d3 = st.columns(3)
     d1.metric("Reserve Power", f"{batt}%")
     d2.metric("Grid Vector", f"[{st.session_state.state['x']}, {st.session_state.state['y']}]")
@@ -339,22 +336,22 @@ with col_ops:
         st.session_state.state = call_core("queue_next")
         st.rerun()
     if qb3.button("▶️ Run Queue (Animated)", use_container_width=True):
-        # Step-by-step animated execution
         while st.session_state.state["queue"]:
             st.session_state.state = call_core("queue_next")
             render_matrix(matrix_placeholder, st.session_state.state)
             banner_placeholder.markdown(f"""
             <div class="status-banner">
-                <strong>TELEMETRY BUS:</strong> {st.session_state.state.get('msg', 'Processing queue...')}
+                <strong>TELEMETRY BUS:</strong> {st.session_state.state.get('msg', 'Running mission...')}
             </div>
             """, unsafe_allow_html=True)
-            time.sleep(speed)
+            time.sleep(anim_speed)
         st.rerun()
 
     with st.expander("Active Pipeline Tasks", expanded=True):
         if st.session_state.state["queue"]:
             for idx, q_cmd in enumerate(st.session_state.state["queue"], 1):
-                st.code(f"PIPE #{idx}: {q_cmd}")
+                clean_name = q_cmd.split(":")[0] + (" " + q_cmd.split(":")[1] if ":" in q_cmd else "")
+                st.code(f"PIPE #{idx}: {clean_name}")
         else:
             st.caption("No instructions in pipeline.")
 
@@ -362,14 +359,16 @@ with col_ops:
     with tab_u:
         if st.session_state.state["undo"]:
             for item in reversed(st.session_state.state["undo"]):
-                st.text(f"⮌ {item}")
+                clean_name = item.split(":")[0] + (" " + item.split(":")[1] if ":" in item else "")
+                st.text(f"⮌ {clean_name}")
         else:
             st.caption("Stack empty.")
 
     with tab_r:
         if st.session_state.state["redo"]:
             for item in reversed(st.session_state.state["redo"]):
-                st.text(f"⮎ {item}")
+                clean_name = item.split(":")[0] + (" " + item.split(":")[1] if ":" in item else "")
+                st.text(f"⮎ {clean_name}")
         else:
             st.caption("Stack empty.")
 
