@@ -25,7 +25,7 @@ st.markdown("""
             border-color: #4ade80;
         }
         50% {
-            box-shadow: 0 0 0 10px rgba(74, 222, 128, 0), inset 0 0 16px rgba(74, 222, 128, 0.8);
+            box-shadow: 0 0 0 10px rgba(74, 222, 128, 0), inset 0 0 18px rgba(74, 222, 128, 0.8);
             border-color: #86efac;
         }
         100% {
@@ -34,26 +34,36 @@ st.markdown("""
         }
     }
 
-    .cell-10 {
-        height: 48px;
-        border-radius: 6px;
+    @keyframes weed-drift {
+        0% { transform: translateY(0px) rotate(0deg); }
+        50% { transform: translateY(-2px) rotate(2deg); }
+        100% { transform: translateY(0px) rotate(0deg); }
+    }
+
+    .cell-5 {
+        height: 68px;
+        border-radius: 8px;
         display: flex;
         align-items: center;
         justify-content: center;
         position: relative;
-        font-size: 20px;
+        font-size: 24px;
         transition: transform 0.15s ease-in-out;
         cursor: default;
     }
 
-    .cell-10:hover {
-        transform: scale(1.08);
+    .cell-5:hover {
+        transform: scale(1.04);
         z-index: 10;
     }
 
     .robot-cell {
-        animation: radar-pulse 1.8s infinite ease-out;
+        animation: radar-pulse 2s infinite ease-out;
         z-index: 5;
+    }
+
+    .weed-cell {
+        animation: weed-drift 4s infinite ease-in-out;
     }
 
     .base-station {
@@ -62,10 +72,10 @@ st.markdown("""
 
     .coord-tag {
         position: absolute;
-        bottom: 2px;
-        right: 3px;
-        font-size: 8px;
-        opacity: 0.4;
+        bottom: 3px;
+        right: 4px;
+        font-size: 9px;
+        opacity: 0.45;
     }
 
     .status-banner {
@@ -148,58 +158,80 @@ THEME = {
 
 # --- Sidebar Architecture ---
 with st.sidebar:
-    st.title("🚜 Navigation Metrics")
+    st.title("🚜 System Architecture")
     st.markdown("""
-    - **10x10 Matrix**: 100 Quadrants
-    - **Routing Algorithm**: Greedy Nearest-Neighbor TSP
-    - **Distance Metric**: Manhattan Distance
-    - **Encapsulation**: Guarded internal coordinates
-    - **Stack / Queue**: LIFO Rollbacks & FIFO Pipeline
+    - **Polymorphism**: `ActionCommand` abstract base
+    - **Encapsulation**: Private parameters & clamps
+    - **Undo / Redo**: LIFO `std::stack`
+    - **Pipeline**: FIFO `std::queue`
+    - **Base Station**: Solar Recharge at `[0,0]`
     """)
-    if st.button("🎲 Randomize 10x10 Field", use_container_width=True):
+    if st.button("🎲 Randomize 5x5 Field", use_container_width=True):
         st.session_state.state = call_core("reset")
         st.rerun()
 
-st.title("🛰️ AgriBot 10x10 Autonomous Path Optimizer")
+st.title("🛰️ AgriBot 5x5 Tactical Field Terminal")
 
-# Top Controller Panel
-with st.expander("⚡ PATH OPTIMIZER & EXECUTION ENGINE", expanded=True):
+# Interactive Top Controller Panel
+with st.expander("⚡ AUTONOMOUS SWEEP & SPEED CONTROLLER", expanded=True):
     col_c1, col_c2, col_c3 = st.columns([1.2, 1, 1])
     with col_c1:
-        anim_speed = st.slider("Step Traversal Speed (seconds)", min_value=0.05, max_value=0.8, value=0.15, step=0.05)
+        anim_speed = st.slider("Step Traversal Speed (seconds)", min_value=0.05, max_value=1.0, value=0.25, step=0.05)
     with col_c2:
-        if st.button("🧠 Compute Lowest-Cost Path", use_container_width=True):
-            st.session_state.state = call_core("auto_optimize")
+        if st.button("🚀 Queue Full Lawnmower Sweep", use_container_width=True):
+            survey_steps = []
+            for r in range(5):
+                cols = range(5) if r % 2 == 0 else range(4, -1, -1)
+                for c in cols:
+                    survey_steps.append((r, c))
+
+            cur_x, cur_y = st.session_state.state["x"], st.session_state.state["y"]
+            for target_r, target_c in survey_steps:
+                while cur_x < target_r:
+                    call_core("queue_add", type="move", dir="down")
+                    cur_x += 1
+                while cur_x > target_r:
+                    call_core("queue_add", type="move", dir="up")
+                    cur_x -= 1
+                while cur_y < target_c:
+                    call_core("queue_add", type="move", dir="right")
+                    cur_y += 1
+                while cur_y > target_c:
+                    call_core("queue_add", type="move", dir="left")
+                    cur_y -= 1
+                call_core("queue_add", type="inspect")
+
+            st.session_state.state = call_core("state")
             st.rerun()
     with col_c3:
-        if st.button("▶️ Execute Mission (Animated)", use_container_width=True):
-            while st.session_state.state["queue"]:
-                st.session_state.state = call_core("queue_next")
-                render_matrix(matrix_placeholder, st.session_state.state)
-                banner_placeholder.markdown(f"""
-                <div class="status-banner">
-                    <strong>TELEMETRY BUS:</strong> {st.session_state.state.get('msg', 'Navigating waypoint...')}
-                </div>
-                """, unsafe_allow_html=True)
-                time.sleep(anim_speed)
+        if st.button("⚡ Return to Base & Dock", use_container_width=True):
+            cur_x, cur_y = st.session_state.state["x"], st.session_state.state["y"]
+            while cur_x > 0:
+                call_core("queue_add", type="move", dir="up")
+                cur_x -= 1
+            while cur_y > 0:
+                call_core("queue_add", type="move", dir="left")
+                cur_y -= 1
+            call_core("queue_add", type="recharge")
+            st.session_state.state = call_core("state")
             st.rerun()
 
 banner_placeholder = st.empty()
 
-col_map, col_ops = st.columns([1.6, 1], gap="large")
+col_map, col_ops = st.columns([1.5, 1], gap="large")
 
 def render_matrix(target_container, current_state):
     with target_container.container():
-        st.subheader("100-Quadrant Field Array (10x10)")
-        for r in range(10):
-            row_cols = st.columns(10)
-            for c in range(10):
+        st.subheader("Field Topology Matrix (5x5)")
+        for r in range(5):
+            row_cols = st.columns(5)
+            for c in range(5):
                 ch = current_state["grid"][r][c]
                 is_bot = (current_state["x"] == r and current_state["y"] == c)
                 is_base = (r == 0 and c == 0)
 
                 meta = THEME.get(ch, THEME["H"])
-                cell_class = "cell-10"
+                cell_class = "cell-5"
 
                 if is_bot:
                     cell_class += " robot-cell"
@@ -215,6 +247,8 @@ def render_matrix(target_container, current_state):
                     icon = meta["icon"]
                     border = f"1px solid {meta['border']}"
                     bg = meta["bg"]
+                    if ch == "W":
+                        cell_class += " weed-cell"
 
                 row_cols[c].markdown(
                     f"""
@@ -226,7 +260,7 @@ def render_matrix(target_container, current_state):
                     unsafe_allow_html=True
                 )
 
-# --- Left Column: Grid ---
+# --- Left Column: Matrix & Manual Controls ---
 with col_map:
     matrix_placeholder = st.empty()
     render_matrix(matrix_placeholder, st.session_state.state)
@@ -234,9 +268,9 @@ with col_map:
     st.markdown("<br>", unsafe_allow_html=True)
     k1, k2, k3, k4 = st.columns(4)
     k1.markdown("🤖 **Rover**")
-    k2.markdown("⚡ **Base Station [0,0]**")
-    k3.markdown("🌾 **Weed Target**")
-    k4.markdown("🥀 **Pathogen Target**")
+    k2.markdown("⚡ **Solar Base [0,0]**")
+    k3.markdown("🌾 **Weed (-3%)**")
+    k4.markdown("🥀 **Blight (-3%)**")
 
     st.markdown("---")
     st.subheader("Manual Teleoperation Control")
@@ -258,19 +292,28 @@ with col_map:
         st.rerun()
 
     a1, a2, a3 = st.columns(3)
-    if a1.button("💦 Precision Spray (-3%)", use_container_width=True):
+    if a1.button("🔬 Inspect (-1%)", use_container_width=True):
+        st.session_state.state = call_core("inspect")
+        st.rerun()
+    if a2.button("💦 Precision Spray (-3%)", use_container_width=True):
         st.session_state.state = call_core("spray")
         st.rerun()
-    if a2.button("⏪ Undo Stack", use_container_width=True):
+    is_at_base = (st.session_state.state["x"] == 0 and st.session_state.state["y"] == 0)
+    if a3.button("⚡ Dock & Charge", use_container_width=True, disabled=not is_at_base):
+        st.session_state.state = call_core("recharge")
+        st.rerun()
+
+    u1, u2 = st.columns(2)
+    if u1.button("⏪ Undo Stack", use_container_width=True):
         st.session_state.state = call_core("undo")
         st.rerun()
-    if a3.button("⏩ Redo Stack", use_container_width=True):
+    if u2.button("⏩ Redo Stack", use_container_width=True):
         st.session_state.state = call_core("redo")
         st.rerun()
 
-# --- Right Column: Diagnostics & Stacks ---
+# --- Right Column: Diagnostics & Pipelines ---
 with col_ops:
-    st.subheader("Field Diagnostics")
+    st.subheader("System Diagnostics")
 
     batt = st.session_state.state["battery"]
     weeds_remaining = sum(row.count('W') for row in st.session_state.state["grid"])
@@ -285,17 +328,45 @@ with col_ops:
     st.markdown("---")
     st.subheader("Mission Pipeline (`std::queue`)")
 
+    col_sel1, col_sel2 = st.columns(2)
+    with col_sel1:
+        q_act = st.selectbox("Action Type", ["move", "spray", "inspect", "recharge"])
+    with col_sel2:
+        q_dir = st.selectbox("Direction", ["up", "down", "left", "right"]) if q_act == "move" else None
+
+    qb1, qb2, qb3 = st.columns(3)
+    if qb1.button("Push Queue", use_container_width=True):
+        payload = {"type": q_act}
+        if q_dir:
+            payload["dir"] = q_dir
+        st.session_state.state = call_core("queue_add", **payload)
+        st.rerun()
+    if qb2.button("Step Queue", use_container_width=True):
+        st.session_state.state = call_core("queue_next")
+        st.rerun()
+    if qb3.button("▶️ Run Queue (Animated)", use_container_width=True):
+        while st.session_state.state["queue"]:
+            st.session_state.state = call_core("queue_next")
+            render_matrix(matrix_placeholder, st.session_state.state)
+            banner_placeholder.markdown(f"""
+            <div class="status-banner">
+                <strong>TELEMETRY BUS:</strong> {st.session_state.state.get('msg', 'Processing mission...')}
+            </div>
+            """, unsafe_allow_html=True)
+            time.sleep(anim_speed)
+        st.rerun()
+
     with st.expander("Pending Instructions", expanded=True):
         if st.session_state.state["queue"]:
-            for idx, q_cmd in enumerate(st.session_state.state["queue"][:12], 1):
+            for idx, q_cmd in enumerate(st.session_state.state["queue"][:10], 1):
                 clean_name = q_cmd.split(":")[0] + (" " + q_cmd.split(":")[1] if ":" in q_cmd else "")
                 st.code(f"STEP #{idx}: {clean_name}")
-            if len(st.session_state.state["queue"]) > 12:
-                st.caption(f"...and {len(st.session_state.state['queue']) - 12} more instructions queued.")
+            if len(st.session_state.state["queue"]) > 10:
+                st.caption(f"...and {len(st.session_state.state['queue']) - 10} more instructions queued.")
         else:
             st.caption("No instructions in pipeline.")
 
-    tab_u, tab_r, tab_h = st.tabs(["LIFO Undo", "LIFO Redo", "Flight History"])
+    tab_u, tab_r, tab_h = st.tabs(["LIFO Undo Stack", "LIFO Redo Stack", "Telemetry Log"])
     with tab_u:
         if st.session_state.state["undo"]:
             for item in reversed(st.session_state.state["undo"][-8:]):
