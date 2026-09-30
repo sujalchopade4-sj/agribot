@@ -25,7 +25,15 @@ def call_core(action, **kwargs):
     args = [EXE_PATH, STATE_FILE, action] + [f"{k}={v}" for k, v in kwargs.items()]
     return json.loads(subprocess.run(args, capture_output=True, text=True, check=True).stdout.strip())
 
-st.session_state.state = call_core("state")
+# FIX: only fetch a fresh "state" on the very first load of this session.
+# Previously this ran unconditionally on every rerun (including the rerun
+# that fires right after a button click), which overwrote the real message
+# from that action ("Moved up to [...]", "Undo Stack is empty...", etc.)
+# with the C++ program's default constructor message, since msg isn't
+# persisted to the state file. Button clicks now own st.session_state.state
+# from here on, so their messages actually stay visible.
+if "state" not in st.session_state:
+    st.session_state.state = call_core("state")
 
 THEME = {
     "H": {"bg": "#064e3b", "border": "#10b981", "icon": "🌱"},
