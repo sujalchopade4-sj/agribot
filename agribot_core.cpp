@@ -76,9 +76,12 @@ public:
         tx = px + (dir == "down") - (dir == "up");
         ty = py + (dir == "right") - (dir == "left");
 
-        if (tx < 0 || tx >= N || ty < 0 || ty >= N) {
-            b.setMessage("Boundary collision avoided."); return false;
-        }
+        // Specific directional perimeter warnings
+        if (tx < 0) { b.setMessage("Boundary limit: Cannot move UP (Already at top edge)."); return false; }
+        if (tx >= N) { b.setMessage("Boundary limit: Cannot move DOWN (Already at bottom edge)."); return false; }
+        if (ty < 0) { b.setMessage("Boundary limit: Cannot move LEFT (Already at west edge)."); return false; }
+        if (ty >= N) { b.setMessage("Boundary limit: Cannot move RIGHT (Already at east edge)."); return false; }
+
         b.setPos(tx, ty); b.setBattery(pb - 1);
         b.setMessage("Moved " + dir + " to [" + std::to_string(tx) + "," + std::to_string(ty) + "].");
         return true;
@@ -215,17 +218,28 @@ int main(int argc, char* argv[]) {
         else if (act == "inspect") cmd = std::make_shared<InspectCommand>();
         else if (act == "recharge") cmd = std::make_shared<RechargeCommand>();
 
-        if (cmd && cmd->execute(bot)) { undoStack.push_back(cmd->serialize()); redoStack.clear(); }
+        if (cmd && cmd->execute(bot)) { 
+            undoStack.push_back(cmd->serialize()); 
+            redoStack.clear(); 
+        }
     }
-    else if (act == "undo" && !undoStack.empty()) {
-        auto cmd = deserialize(undoStack.back());
-        undoStack.pop_back();
-        if (cmd) { cmd->undo(bot); redoStack.push_back(cmd->serialize()); }
+    else if (act == "undo") {
+        if (undoStack.empty()) {
+            bot.setMessage("Undo Stack is empty. Nothing to undo!");
+        } else {
+            auto cmd = deserialize(undoStack.back());
+            undoStack.pop_back();
+            if (cmd) { cmd->undo(bot); redoStack.push_back(cmd->serialize()); }
+        }
     }
-    else if (act == "redo" && !redoStack.empty()) {
-        auto cmd = deserialize(redoStack.back());
-        redoStack.pop_back();
-        if (cmd) { cmd->redo(bot); undoStack.push_back(cmd->serialize()); }
+    else if (act == "redo") {
+        if (redoStack.empty()) {
+            bot.setMessage("Redo Stack is empty. Nothing to redo!");
+        } else {
+            auto cmd = deserialize(redoStack.back());
+            redoStack.pop_back();
+            if (cmd) { cmd->redo(bot); undoStack.push_back(cmd->serialize()); }
+        }
     }
     else if (act == "queue_add" && argc >= 4) {
         std::string t = "inspect", d = "";
@@ -235,15 +249,19 @@ int main(int argc, char* argv[]) {
             if (arg.rfind("dir=", 0) == 0) d = arg.substr(4);
         }
         queueList.push_back(t == "move" ? "move:" + d : t);
-        bot.setMessage("Enqueued in STL Queue: " + queueList.back());
+        bot.setMessage("Enqueued: " + queueList.back());
     }
-    else if (act == "queue_next" && !queueList.empty()) {
-        std::string nextCmd = queueList.front();
-        queueList.erase(queueList.begin());
-        auto cmd = deserialize(nextCmd);
-        if (cmd && cmd->execute(bot)) { 
-            undoStack.push_back(cmd->serialize()); 
-            redoStack.clear(); 
+    else if (act == "queue_next") {
+        if (queueList.empty()) {
+            bot.setMessage("Pipeline is empty. No instructions to run.");
+        } else {
+            std::string nextCmd = queueList.front();
+            queueList.erase(queueList.begin());
+            auto cmd = deserialize(nextCmd);
+            if (cmd && cmd->execute(bot)) { 
+                undoStack.push_back(cmd->serialize()); 
+                redoStack.clear(); 
+            }
         }
     }
 
