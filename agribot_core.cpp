@@ -145,24 +145,35 @@ public:
 };
 
 std::shared_ptr<ActionCommand> deserialize(const std::string& s) {
-    std::stringstream ss(s); std::string type, a, b, c, d, e, f;
+    std::stringstream ss(s); std::string type;
     std::getline(ss, type, ':');
     if (type == "move") {
-        std::getline(ss, a, ':'); std::getline(ss, b, ':'); std::getline(ss, c, ':');
-        std::getline(ss, d, ':'); std::getline(ss, e, ':'); std::getline(ss, f, ':');
-        return d.empty() ? std::make_shared<MoveCommand>(a) : std::make_shared<MoveCommand>(a, std::stoi(b), std::stoi(c), std::stoi(d), std::stoi(e), std::stoi(f));
+        std::string dir, px, py, tx, ty, pb;
+        std::getline(ss, dir, ':');
+        if (std::getline(ss, px, ':') && std::getline(ss, py, ':') &&
+            std::getline(ss, tx, ':') && std::getline(ss, ty, ':') && std::getline(ss, pb, ':')) {
+            return std::make_shared<MoveCommand>(dir, std::stoi(px), std::stoi(py), std::stoi(tx), std::stoi(ty), std::stoi(pb));
+        }
+        return std::make_shared<MoveCommand>(dir.empty() ? "up" : dir);
     }
     if (type == "inspect") {
-        std::getline(ss, a, ':'); std::getline(ss, b, ':'); std::getline(ss, c, ':'); std::getline(ss, d, ':');
-        return d.empty() ? std::make_shared<InspectCommand>() : std::make_shared<InspectCommand>(std::stoi(a), std::stoi(b), std::stoi(c), d == "1");
+        std::string x, y, pb, d;
+        if (std::getline(ss, x, ':') && std::getline(ss, y, ':') && std::getline(ss, pb, ':') && std::getline(ss, d, ':')) {
+            return std::make_shared<InspectCommand>(std::stoi(x), std::stoi(y), std::stoi(pb), d == "1");
+        }
+        return std::make_shared<InspectCommand>();
     }
     if (type == "spray") {
-        std::getline(ss, a, ':'); std::getline(ss, b, ':'); std::getline(ss, c, ':'); std::getline(ss, d, ':');
-        return d.empty() ? std::make_shared<SprayCommand>() : std::make_shared<SprayCommand>(std::stoi(a), std::stoi(b), c[0], std::stoi(d));
+        std::string x, y, ps, pb;
+        if (std::getline(ss, x, ':') && std::getline(ss, y, ':') && std::getline(ss, ps, ':') && std::getline(ss, pb, ':')) {
+            return std::make_shared<SprayCommand>(std::stoi(x), std::stoi(y), ps[0], std::stoi(pb));
+        }
+        return std::make_shared<SprayCommand>();
     }
     if (type == "recharge") {
-        std::getline(ss, a, ':');
-        return a.empty() ? std::make_shared<RechargeCommand>() : std::make_shared<RechargeCommand>(std::stoi(a));
+        std::string pb;
+        if (std::getline(ss, pb, ':')) return std::make_shared<RechargeCommand>(std::stoi(pb));
+        return std::make_shared<RechargeCommand>();
     }
     return nullptr;
 }
@@ -188,7 +199,12 @@ int main(int argc, char* argv[]) {
         in.close();
     }
 
-    if (act == "reset") { bot.resetField(); undoStack.clear(); redoStack.clear(); queueList.clear(); }
+    if (act == "reset") { 
+        bot.resetField(); 
+        undoStack.clear(); 
+        redoStack.clear(); 
+        queueList.clear(); 
+    }
     else if (act == "move" || act == "spray" || act == "inspect" || act == "recharge") {
         std::shared_ptr<ActionCommand> cmd = nullptr;
         if (act == "move") {
@@ -219,12 +235,16 @@ int main(int argc, char* argv[]) {
             if (arg.rfind("dir=", 0) == 0) d = arg.substr(4);
         }
         queueList.push_back(t == "move" ? "move:" + d : t);
-        bot.setMessage("Enqueued: " + queueList.back());
+        bot.setMessage("Enqueued in STL Queue: " + queueList.back());
     }
     else if (act == "queue_next" && !queueList.empty()) {
-        auto cmd = deserialize(queueList.front());
+        std::string nextCmd = queueList.front();
         queueList.erase(queueList.begin());
-        if (cmd && cmd->execute(bot)) { undoStack.push_back(cmd->serialize()); redoStack.clear(); }
+        auto cmd = deserialize(nextCmd);
+        if (cmd && cmd->execute(bot)) { 
+            undoStack.push_back(cmd->serialize()); 
+            redoStack.clear(); 
+        }
     }
 
     std::ofstream out(stateFile);
