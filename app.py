@@ -76,7 +76,7 @@ with col_map:
     c1, c2, c3 = st.columns(3)
     if c2.button("⬆️ North", use_container_width=True): st.session_state.state = call_core("move", dir="up"); st.rerun()
     c4, c5, c6 = st.columns(3)
-    if c4.button("⬅️️ West", use_container_width=True): st.session_state.state = call_core("move", dir="left"); st.rerun()
+    if c4.button("⬅ West", use_container_width=True): st.session_state.state = call_core("move", dir="left"); st.rerun()
     if c5.button("⬇️ South", use_container_width=True): st.session_state.state = call_core("move", dir="down"); st.rerun()
     if c6.button("➡️ East", use_container_width=True): st.session_state.state = call_core("move", dir="right"); st.rerun()
 
@@ -111,9 +111,11 @@ with col_ops:
     if b1.button("Push Queue", use_container_width=True):
         payload = {"type": q_act}
         if q_dir: payload["dir"] = q_dir
-        st.session_state.state = call_core("queue_add", **payload); st.rerun()
+        st.session_state.state = call_core("queue_add", **payload)
+        st.rerun()
     if b2.button("Step Queue", use_container_width=True):
-        st.session_state.state = call_core("queue_next"); st.rerun()
+        st.session_state.state = call_core("queue_next")
+        st.rerun()
     if b3.button("▶️ Run Queue", use_container_width=True):
         while st.session_state.state["queue"]:
             st.session_state.state = call_core("queue_next")
@@ -122,10 +124,29 @@ with col_ops:
             time.sleep(speed)
         st.rerun()
 
+    # Active Pipeline Visualizer
+    with st.expander("Active Pipeline Tasks (`FIFO Queue`)", expanded=True):
+        if st.session_state.state["queue"]:
+            for idx, q_cmd in enumerate(st.session_state.state["queue"][:10], 1):
+                clean_name = q_cmd.replace(":", " ➔ ")
+                st.code(f"QUEUE #{idx}: {clean_name}")
+            if len(st.session_state.state["queue"]) > 10:
+                st.caption(f"...and {len(st.session_state.state['queue']) - 10} more in queue.")
+        else:
+            st.caption("No instructions in pipeline.")
+
     tu, tr = st.tabs(["LIFO Undo Stack", "LIFO Redo Stack"])
     with tu:
-        for it in reversed(st.session_state.state["undo"][-8:]): st.text(f"⮌ {it.split(':')[0]}")
+        if st.session_state.state["undo"]:
+            for it in reversed(st.session_state.state["undo"][-8:]):
+                st.text(f"⮌ {it.split(':')[0]}")
+        else:
+            st.caption("Undo stack empty.")
     with tr:
-        for it in reversed(st.session_state.state["redo"][-8:]): st.text(f"⮎ {it.split(':')[0]}")
+        if st.session_state.state["redo"]:
+            for it in reversed(st.session_state.state["redo"][-8:]):
+                st.text(f"⮎ {it.split(':')[0]}")
+        else:
+            st.caption("Redo stack empty.")
 
 banner.markdown(f'<div class="status-banner"><strong>TELEMETRY:</strong> {st.session_state.state.get("msg","Ready.")}</div>', unsafe_allow_html=True)
